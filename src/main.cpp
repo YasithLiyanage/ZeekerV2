@@ -189,88 +189,68 @@ void imuBegin() {
   lastYawUpdate = millis();
 }
 
-// ====== IMU Straight Drive Function ======
-// void driveStraightIMU(float distance_cm, int pwm) {
-//   long startA, startB;
-//   noInterrupts();
-//   startA = posA;
-//   startB = posB;
-//   interrupts();
-
-//   float distance_mm = distance_cm * 10.0f;
-//   float targetYaw = yaw;          // lock heading
-//   float Kp = 0.5;                 // simple P correction
-
-//   while (true) {
-//     // update IMU
-//     mpu.gyroUpdate();
-//     unsigned long now = millis();
-//     float dt = (now - lastYawUpdate) / 1000.0f;
-//     lastYawUpdate = now;
-//     float gz = mpu.gyroZ() - gyroBiasZ;
-//     yaw += gz * dt;
-//     if (yaw > 180) yaw -= 360;
-//     if (yaw < -180) yaw += 360;
-
-//     // encoder distance
-//     noInterrupts();
-//     long curA = posA - startA;
-//     long curB = posB - startB;
-//     interrupts();
-
-//     float distL = curA / TICKS_PER_MM_L;
-//     float distR = curB / TICKS_PER_MM_R;
-//     float avg = (distL + distR) * 0.5f;
-
-//     if (avg >= distance_mm) break;
-
-//     // IMU correction
-//     float err = angleDiff(targetYaw, yaw);
-
-//     float turn = Kp * err;
-
-//     motorL(pwm + turn);
-//     motorR(pwm - turn);
-
-//     delay(5);
-//   }
-
-//   motorsStop();
-// }
 
 
-void driveStraightIMU(float distance_cm, int base_pwm) {
+
+
+
+
+
+
+void driveStraightIMU_smooth(float distance_cm, int maxPWM) {
+
+  float distance_mm = distance_cm * 10.0f;
+
   long startA, startB;
   noInterrupts();
   startA = posA;
   startB = posB;
   interrupts();
 
-  float distance_mm = distance_cm * 10.0f;
+  // ==========================
+  // ⭐ Step 1 — Update IMU BEFORE movement
+  // ==========================
+  mpu.gyroUpdate();
+  lastYawUpdate = millis();
+  float gz = mpu.gyroZ() - gyroBiasZ;
+  yaw += gz * 0.001f;   // tiny update
+
+  // ⭐ NOW lock real starting heading
   float targetYaw = yaw;
-  const float Kp = 1.6f;
-  const float MAX_TURN = 80.0f;           // Limit max correction
-  const float SLIP_THRESHOLD = 2.5f;      // Max allowed L/R distance diff (mm)
-  const float MIN_SPEED = 15.0f;          // Min PWM to consider "moving"
 
-  unsigned long lastUpdate = millis();
-  float lastAvg = 0;
+  // ==========================
+  // Gain & ramp config
+  // ==========================
+  const float Kp = 4.6f;
+  const float rampDist = 30.0f;    
+  const int MIN_START_PWM = 70;    
+  const int MIN_RUNNING_PWM = 50;  
 
+  // ==========================
+  // ⭐ Step 2 — Kickstart AFTER locking heading
+  // ==========================
+  motorL(MIN_START_PWM);
+  motorR(MIN_START_PWM);
+  delay(40);  // give wheels initial torque
+
+  // ==========================
+  // ⭐ Step 3 — Main IMU loop
+  // ==========================
   while (true) {
-    unsigned long now = millis();
-    float dt = (now - lastUpdate) / 1000.0f;
-    if (dt < 0.005f) { delay(1); continue; }  // Prevent too-fast loop
-    lastUpdate = now;
 
-    // === Update IMU ===
+    // --- IMU update ---
     mpu.gyroUpdate();
-    float gz = mpu.gyroZ() - gyroBiasZ;
+    unsigned long now = millis();
+    float dt = (now - lastYawUpdate)/1000.0f;
+    lastYawUpdate = now;
+
+    gz = mpu.gyroZ() - gyroBiasZ;
     yaw += gz * dt;
-    // Optional: wrap yaw
+
     if (yaw > 180) yaw -= 360;
     if (yaw < -180) yaw += 360;
 
-    // === Read Encoders ===
+    // --- Encoder distance ---
     noInterrupts();
     long curA = posA - startA;
     long curB = posB - startB;
@@ -279,43 +259,48 @@ void driveStraightIMU(float distance_cm, int base_pwm) {
     float distL = curA / TICKS_PER_MM_L;
     float distR = curB / TICKS_PER_MM_R;
     float avg = (distL + distR) * 0.5f;
-    float diff = distL - distR;
 
-    // === Check for completion ===
     if (avg >= distance_mm) break;
 
-    // === Slip / Blockage Detection ===
-    float speed = (avg - lastAvg) / dt;  // mm/s
-    lastAvg = avg;
+    // --- PWM ramp ---
+    float pwm = maxPWM;
 
-    bool leftBlocked = (distL < distR - SLIP_THRESHOLD) && (speed < MIN_SPEED);
-    bool rightBlocked = (distR < distL - SLIP_THRESHOLD) && (speed < MIN_SPEED);
-
-    if (leftBlocked || rightBlocked || abs(diff) > SLIP_THRESHOLD * 3) {
-      // One wheel stalled → stop correction, just creep forward
-      motorL(base_pwm * 0.7);
-      motorR(base_pwm * 0.7);
-      delay(10);
-      continue;
+    if (avg < rampDist) {
+      pwm = MIN_START_PWM + (maxPWM - MIN_START_PWM) * (avg / rampDist);
+    }
+    else if ((distance_mm - avg) < rampDist) {
+      pwm = MIN_RUNNING_PWM + (maxPWM - MIN_RUNNING_PWM) * ((distance_mm - avg) / rampDist);
     }
 
-    // === Normal IMU Correction (with limits) ===
+    pwm = constrain(pwm, MIN_RUNNING_PWM, maxPWM);
+
+    // --- Heading correction ---
     float err = angleDiff(targetYaw, yaw);
-    float turn = constrain(Kp * err, -MAX_TURN, MAX_TURN);
+    float turn = Kp * err;
 
-    // Optional: reduce correction if wheels are diverging
-    if (abs(diff) > SLIP_THRESHOLD) {
-      turn *= 0.5f;  // Dampen correction if slipping
-    }
+    int pwmL = pwm - turn;
+    int pwmR = pwm + turn;
 
-    motorL(constrain(base_pwm + turn, -255, 255));
-    motorR(constrain(base_pwm - turn, -255, 255));
+    motorL(pwmL);
+    motorR(pwmR);
 
     delay(5);
   }
 
+  // ==========================
+  // ⭐ Step 4 — Hard brake + reverse pulse
+  // ==========================
+
+
+  motorL(-60);
+  motorR(-60);
+  delay(65);
+
   motorsStop();
 }
+
+
+
 
 
 
@@ -356,7 +341,7 @@ bool runOnce = false;
 void loop() {
   if (!runOnce) {
     delay(1000);
-    driveStraightIMU(100.0f, 120);   // drive 100 cm at pwm=120
+    driveStraightIMU_smooth(50.0f, 200);   // drive 100 cm at pwm=120
     runOnce = true;
   }
 }
