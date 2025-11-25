@@ -196,6 +196,45 @@ void imuBegin() {
 
 
 
+void preciseStopCorrection(long targetTicksL, long targetTicksR) {
+  // Compute current travelled ticks
+  noInterrupts();
+  long curL = posA - targetTicksL;
+  long curR = posB - targetTicksR;
+  interrupts();
+
+  // Convert to mm
+  float distL = curL / TICKS_PER_MM_L;
+  float distR = curR / TICKS_PER_MM_R;
+  float avgErr = (distL + distR) * 0.5f;   // mm error
+
+  // If within ±3mm → perfect
+  if (abs(avgErr) <= 3.0f) return;
+
+  int pwm = 160;  // correction power
+
+  if (avgErr > 3) {
+    // Overshoot → reverse a little
+    motorL(-pwm);
+    motorR(-pwm);
+    delay(abs(avgErr) * 4); // ~4ms per mm
+  } else {
+    // Undershoot → move forward a little
+    motorL(pwm);
+    motorR(pwm);
+    delay(abs(avgErr) * 4);
+  }
+
+  motorsStop();
+}
+
+
+
+
+
+
+
+
 
 void driveStraightIMU_smooth(float distance_cm, int maxPWM) {
 
@@ -294,10 +333,44 @@ void driveStraightIMU_smooth(float distance_cm, int maxPWM) {
 
   motorL(-60);
   motorR(-60);
-  delay(65);
+  delay(35);
 
   motorsStop();
+
+  // After reverse pulse
+motorsStop();
+
+// Encoder-based fine correction
+long targetA = startA + distance_mm * TICKS_PER_MM_L;
+long targetB = startB + distance_mm * TICKS_PER_MM_R;
+preciseStopCorrection(targetA, targetB);
+
+
 }
+
+
+
+
+float angleError_FL_FR() {
+    float FL = readMM(CH_FRONT_LEFT, 1);
+    float FR = readMM(CH_FRONT_RIGHT, 3);
+
+    // valid range for 45° sensors
+    if (FL < 20 || FL > 150) return 0;
+    if (FR < 20 || FR > 150) return 0;
+
+    // angle error = difference
+    float diff = FL - FR;
+
+    // tuning gain
+    const float Kp = 1.4f;
+
+    return Kp * diff;  // positive = turn left, negative = turn right
+}
+
+
+
+
 
 
 
@@ -338,10 +411,66 @@ void setup() {
 // ====== Loop (run straight once) ======
 bool runOnce = false;
 
-void loop() {
-  if (!runOnce) {
-    delay(1000);
-    driveStraightIMU_smooth(50.0f, 200);   // drive 100 cm at pwm=120
-    runOnce = true;
-  }
+
+
+ void loop() {
+
+    // =========================
+    // Read sensors
+    // =========================
+    float FL = readMM(CH_FRONT_LEFT, 1);
+    float FR = readMM(CH_FRONT_RIGHT, 3);
+
+    // Read IMU yaw
+    mpu.gyroUpdate();
+    unsigned long now = millis();
+    float dt = (now - lastYawUpdate) / 1000.0f;
+    lastYawUpdate = now;
+
+    float gz = mpu.gyroZ() - gyroBiasZ;
+    yaw += gz * dt;
+    if (yaw > 180) yaw -= 360;
+    if (yaw < -180) yaw += 360;
+
+    // =========================
+    // Compute FL–FR angle correction
+    // =========================
+    float diff = 0;
+    if (FL > 20 && FL < 150 && FR > 20 && FR < 150) {
+        diff = FL - FR;
+    }
+
+    float KpAngle = 1.4f;
+    float turnAngle = KpAngle * diff;
+
+    // =========================
+    // IMU straight correction
+    // =========================
+    float targetYaw = 0;  // keep straight
+    float KpYaw = 4.0f;
+
+    float yawErr = angleDiff(targetYaw, yaw);
+    float turnYaw = KpYaw * yawErr;
+
+    // Final turn correction
+    float turn = turnYaw + turnAngle;
+
+    // =========================
+    // DRIVE FORWARD SLOWLY
+    // =========================
+    int basePWM = 90;
+
+    int pwmL = basePWM - turn;
+    int pwmR = basePWM + turn;
+
+    motorL(pwmL);
+    motorR(pwmR);
+
+    // =========================
+    // SERIAL DEBUG PRINT
+    // =========================
+    Serial.printf("FL=%4.0f  FR=%4.0f  diff=%5.1f  turnAngle=%6.2f  yaw=%6.2f  yawErr=%6.2f  turnYaw=%6.2f  pwmL=%4d  pwmR=%4d\n",
+                  FL, FR, diff, turnAngle, yaw, yawErr, turnYaw, pwmL, pwmR);
+
+    delay(20);
 }

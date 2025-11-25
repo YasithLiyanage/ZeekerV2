@@ -302,7 +302,7 @@
 //   long rightTicks = posB;
 //   interrupts();
 
-//   Serial.printf("Yaw:%7.2f° | L:%4.0f FL:%4.0f F:%4.0f FR:%4.0f R:%4.0f | ENC_L:%6ld ENC_R:%6ld\n",
+//   Serial.printf("Yaw:%7.2f° | L:%4.0f   FL:%4.0f    F:%4.0f     FR:%4.0f    R:%4.0f | ENC_L:%6ld ENC_R:%6ld\n",
 //                 yaw, L, FL, F, FR, R, leftTicks, rightTicks);
 
 //   delay(50);
