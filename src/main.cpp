@@ -8,6 +8,9 @@
 #define SCL_PIN 25
 #define MUX_ADDR 0x70
 
+#define BUZZER_PIN 27
+
+
 // ====== MUX Channels ======
 #define CH_FRONT_LEFT   4
 #define CH_FRONT_CENTER 5
@@ -38,6 +41,10 @@
 Adafruit_VL6180X tof;
 MPU9250_asukiaaa mpu;
 
+
+
+
+
 // Encoders
 volatile int posA = 0;
 volatile int posB = 0;
@@ -56,12 +63,15 @@ unsigned long lastYawUpdate = 0;
 // ====== ToF calibration ======
 struct Cal { float a, b; };
 Cal CAL[] = {
-  {1.00f, -42.0f},
-  {1.00f,  20.0f},
-  {1.00f, -35.0f},
-  {1.00f, -10.0f},
-  {1.00f, -28.0f}
+  { 1.0667f, -49.3333f }, 
+  { 0.9524f,  19.0476f }, 
+  { 1.0000f, -36.0000f }, 
+  { 0.9756f,  -4.3902f }, 
+  { 1.0811f, -29.7297f }
 };
+
+
+
 
 // ====== Encoder ISRs ======
 void IRAM_ATTR updateEncoderA() {
@@ -371,7 +381,70 @@ float angleError_FL_FR() {
 
 
 
+// ===== BUZZER FUNCTIONS (PASSIVE BUZZER) =====
 
+#define BUZZER_CH 3        // LEDC channel for buzzer
+#define BUZZER_FREQ 4000   // 4 kHz
+#define BUZZER_RES 8       // 8-bit resolution
+
+void buzzInit() {
+    ledcSetup(BUZZER_CH, BUZZER_FREQ, BUZZER_RES);
+    ledcAttachPin(BUZZER_PIN, BUZZER_CH);
+    ledcWrite(BUZZER_CH, 0);   // off
+}
+
+void buzzShort() {
+    ledcWrite(BUZZER_CH, 200);  // volume
+    delay(60);
+    ledcWrite(BUZZER_CH, 0);
+}
+
+void buzzLong() {
+    ledcWrite(BUZZER_CH, 200);
+    delay(250);
+    ledcWrite(BUZZER_CH, 0);
+}
+
+void buzzConfirm(int n = 1) {
+    for (int i = 0; i < n; i++) {
+        buzzShort();
+        delay(80);
+    }
+}
+
+
+void driveCentered45(int basePWM) {
+
+    float FL = readMM(CH_FRONT_LEFT, 0);
+    float FR = readMM(CH_FRONT_RIGHT, 2);
+
+    // invalid → just go straight
+    if (FL < 0 || FR < 0) {
+        motorL(basePWM);
+        motorR(basePWM);
+        return;
+    }
+
+    float diff = FL - FR;  // positive → tilted right
+
+    const float Kp = 1.2f;   // mild correction
+    float turn = Kp * diff;
+
+    int pwmL = basePWM - turn;
+    int pwmR = basePWM + turn;
+
+    motorL(pwmL);
+    motorR(pwmR);
+}
+
+bool frontWallDetected(float FL, float FR) {
+    if (FL < 0 || FR < 0) return false;
+
+    // When front wall exists, both drop to ~60–80mm
+    if (FL < 85 && FR < 85) return true;
+
+    return false;
+}
 
 
 
@@ -388,7 +461,7 @@ void setup() {
   motorsBegin();
 
   // ToF init
-  uint8_t channels[5] = {CH_FRONT_LEFT, CH_FRONT_CENTER, CH_FRONT_RIGHT, CH_LEFT_SIDE, CH_RIGHT_SIDE};
+  uint8_t channels[5] = {CH_LEFT_SIDE, CH_FRONT_LEFT, CH_FRONT_CENTER, CH_FRONT_RIGHT, CH_RIGHT_SIDE};
   for (int i = 0; i < 5; i++) {
     mux(channels[i]);
     delay(3);
@@ -406,6 +479,13 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(ENCA2), updateEncoderA, CHANGE);
   attachInterrupt(digitalPinToInterrupt(ENCB1), updateEncoderB, CHANGE);
   attachInterrupt(digitalPinToInterrupt(ENCB2), updateEncoderB, CHANGE);
+
+  buzzInit();
+  buzzConfirm(1);
+
+ 
+
+  buzzShort();
 }
 
 // ====== Loop (run straight once) ======
@@ -413,64 +493,104 @@ bool runOnce = false;
 
 
 
- void loop() {
+//  void loop() {
 
-    // =========================
-    // Read sensors
-    // =========================
+//     // =========================
+//     // Read sensors
+//     // =========================
+//     float FL = readMM(CH_FRONT_LEFT, 1);
+//     float FR = readMM(CH_FRONT_RIGHT, 3);
+
+//     // Read IMU yaw
+//     mpu.gyroUpdate();
+//     unsigned long now = millis();
+//     float dt = (now - lastYawUpdate) / 1000.0f;
+//     lastYawUpdate = now;
+
+//     float gz = mpu.gyroZ() - gyroBiasZ;
+//     yaw += gz * dt;
+//     if (yaw > 180) yaw -= 360;
+//     if (yaw < -180) yaw += 360;
+
+//     // =========================
+//     // Compute FL–FR angle correction
+//     // =========================
+//     float diff = 0;
+//     if (FL > 20 && FL < 150 && FR > 20 && FR < 150) {
+//         diff = FL - FR;
+//     }
+
+//     float KpAngle = 1.4f;
+//     float turnAngle = KpAngle * diff;
+
+//     // =========================
+//     // IMU straight correction
+//     // =========================
+//     float targetYaw = 0;  // keep straight
+//     float KpYaw = 4.0f;
+
+//     float yawErr = angleDiff(targetYaw, yaw);
+//     float turnYaw = KpYaw * yawErr;
+
+//     // Final turn correction
+//     float turn = turnYaw + turnAngle;
+
+//     // =========================
+//     // DRIVE FORWARD SLOWLY
+//     // =========================
+//     int basePWM = 90;
+
+//     int pwmL = basePWM - turn;
+//     int pwmR = basePWM + turn;
+
+//     motorL(pwmL);
+//     motorR(pwmR);
+
+//     // =========================
+//     // SERIAL DEBUG PRINT
+//     // =========================
+//     Serial.printf("FL=%4.0f  FR=%4.0f  diff=%5.1f  turnAngle=%6.2f  yaw=%6.2f  yawErr=%6.2f  turnYaw=%6.2f  pwmL=%4d  pwmR=%4d\n",
+//                   FL, FR, diff, turnAngle, yaw, yawErr, turnYaw, pwmL, pwmR);
+
+//     delay(20);
+// }
+
+
+void loop() {
+
     float FL = readMM(CH_FRONT_LEFT, 1);
     float FR = readMM(CH_FRONT_RIGHT, 3);
 
-    // Read IMU yaw
-    mpu.gyroUpdate();
-    unsigned long now = millis();
-    float dt = (now - lastYawUpdate) / 1000.0f;
-    lastYawUpdate = now;
+    // 1. Check front wall
+    if (frontWallDetected(FL, FR)) {
+        motorsStop();
+        buzzConfirm(2);
+        Serial.println("=== FRONT WALL DETECTED ===");
+            Serial.printf("FL: %.1f  FR: %.1f\n", FL, FR);
 
-    float gz = mpu.gyroZ() - gyroBiasZ;
-    yaw += gz * dt;
-    if (yaw > 180) yaw -= 360;
-    if (yaw < -180) yaw += 360;
-
-    // =========================
-    // Compute FL–FR angle correction
-    // =========================
-    float diff = 0;
-    if (FL > 20 && FL < 150 && FR > 20 && FR < 150) {
-        diff = FL - FR;
+        delay(200);
+        return;
     }
 
-    float KpAngle = 1.4f;
-    float turnAngle = KpAngle * diff;
+    // 2. Drive centered
+    driveCentered45(120);   // tune base speed
 
-    // =========================
-    // IMU straight correction
-    // =========================
-    float targetYaw = 0;  // keep straight
-    float KpYaw = 4.0f;
+    // 3. Debug
+    Serial.printf("FL: %.1f  FR: %.1f\n", FL, FR);
 
-    float yawErr = angleDiff(targetYaw, yaw);
-    float turnYaw = KpYaw * yawErr;
-
-    // Final turn correction
-    float turn = turnYaw + turnAngle;
-
-    // =========================
-    // DRIVE FORWARD SLOWLY
-    // =========================
-    int basePWM = 90;
-
-    int pwmL = basePWM - turn;
-    int pwmR = basePWM + turn;
-
-    motorL(pwmL);
-    motorR(pwmR);
-
-    // =========================
-    // SERIAL DEBUG PRINT
-    // =========================
-    Serial.printf("FL=%4.0f  FR=%4.0f  diff=%5.1f  turnAngle=%6.2f  yaw=%6.2f  yawErr=%6.2f  turnYaw=%6.2f  pwmL=%4d  pwmR=%4d\n",
-                  FL, FR, diff, turnAngle, yaw, yawErr, turnYaw, pwmL, pwmR);
-
-    delay(20);
+    delay(30);
 }
+
+
+// void loop() {
+//   float LS = readMM(CH_LEFT_SIDE,    0);
+//   float FL = readMM(CH_FRONT_LEFT,   1);
+//   float FC = readMM(CH_FRONT_CENTER, 2);
+//   float FR = readMM(CH_FRONT_RIGHT,  3);
+//   float RS = readMM(CH_RIGHT_SIDE,   4);
+
+//   Serial.printf(" LS:%5.1f  FL:%5.1f  FC:%5.1f  FR:%5.1f    RS:%5.1f\n",
+//                  LS, FL, FC, FR, RS);
+
+//   delay(100);
+// }
