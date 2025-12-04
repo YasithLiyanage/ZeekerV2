@@ -556,30 +556,100 @@ bool runOnce = false;
 // }
 
 
+void driveSideWalls(int basePWM)
+{
+    float L = readMM(CH_LEFT_SIDE, 0);
+    float R = readMM(CH_RIGHT_SIDE, 4);
+
+    bool leftOK  = (L > 10 && L < 180);
+    bool rightOK = (R > 10 && R < 180);
+
+    float turn = 0;
+
+    // ===== CASE 1: BOTH WALLS → CENTER =====
+    if (leftOK && rightOK) {
+        float diff = (R - L);   // positive: robot too close to left
+        const float Kp = 0.9f;  // mild
+
+        turn = Kp * diff;
+    }
+
+    // ===== CASE 2: LEFT ONLY =====
+    else if (leftOK && !rightOK) {
+        float err = (L - 40.0f); // target distance = 40 mm
+        const float Kp = 1.1f;
+
+        turn = Kp * err;   // positive → drift to right
+    }
+
+    // ===== CASE 3: RIGHT ONLY =====
+    else if (!leftOK && rightOK) {
+        float err = (R - 40.0f);
+        const float Kp = 1.1f;
+
+        turn = -Kp * err;  // negative → drift to left
+    }
+
+    // ===== CASE 4: NO WALLS → GO STRAIGHT =====
+    else {
+        motorL(basePWM);
+        motorR(basePWM);
+        return;
+    }
+
+    // ===== APPLY MOTOR CORRECTION =====
+    int pwmL = basePWM - turn;
+    int pwmR = basePWM + turn;
+
+    motorL(pwmL);
+    motorR(pwmR);
+}
+
 void loop() {
 
     float FL = readMM(CH_FRONT_LEFT, 1);
     float FR = readMM(CH_FRONT_RIGHT, 3);
 
-    // 1. Check front wall
+    // Detect front wall
     if (frontWallDetected(FL, FR)) {
         motorsStop();
         buzzConfirm(2);
         Serial.println("=== FRONT WALL DETECTED ===");
-            Serial.printf("FL: %.1f  FR: %.1f\n", FL, FR);
-
-        delay(200);
         return;
     }
 
-    // 2. Drive centered
-    driveCentered45(120);   // tune base speed
+    // Follow side walls
+    driveSideWalls(120);
 
-    // 3. Debug
-    Serial.printf("FL: %.1f  FR: %.1f\n", FL, FR);
-
-    delay(30);
+    delay(20);
 }
+
+
+
+// void loop() {
+
+//     float FL = readMM(CH_FRONT_LEFT, 1);
+//     float FR = readMM(CH_FRONT_RIGHT, 3);
+
+//     // 1. Check front wall
+//     if (frontWallDetected(FL, FR)) {
+//         motorsStop();
+//         buzzConfirm(2);
+//         Serial.println("=== FRONT WALL DETECTED ===");
+//             Serial.printf("FL: %.1f  FR: %.1f\n", FL, FR);
+
+//         delay(200);
+//         return;
+//     }
+
+//     // 2. Drive centered
+//     driveCentered45(120);   // tune base speed
+
+//     // 3. Debug
+//     Serial.printf("FL: %.1f  FR: %.1f\n", FL, FR);
+
+//     delay(30);
+// }
 
 
 // void loop() {
