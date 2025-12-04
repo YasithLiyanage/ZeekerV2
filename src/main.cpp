@@ -1,312 +1,666 @@
-// #include <Wire.h>
-// #include <Arduino.h>
-// #include "Adafruit_VL6180X.h"
-// #include <MPU9250_asukiaaa.h>
+#include <Wire.h>
+#include <Arduino.h>
+#include "Adafruit_VL6180X.h"
+#include <MPU9250_asukiaaa.h>
 
-// // ====== I²C and MUX Pins ======
-// #define SDA_PIN 26
-// #define SCL_PIN 25
-// #define MUX_ADDR 0x70
+// ====== I²C and MUX Pins ======
+#define SDA_PIN 26
+#define SCL_PIN 25
+#define MUX_ADDR 0x70
 
-// // ====== MUX Channels ======
-// #define CH_FRONT_LEFT   4
-// #define CH_FRONT_CENTER 5
-// #define CH_FRONT_RIGHT  6
-// #define CH_LEFT_SIDE    3
-// #define CH_RIGHT_SIDE   7
-
-// // ====== Encoder Pins ======
-// #define ENCA1 35  // Left encoder channel A
-// #define ENCA2 34  // Left encoder channel B
-// #define ENCB1 33  // Right encoder channel A
-// #define ENCB2 32  // Right encoder channel B
-
-// // ====== Motor Wiring ======
-// // Left motor
-// #define L_IN1 5
-// #define L_IN2 17
-// #define L_PWM 18  // PWM pin for left motor
-
-// // Right motor
-// #define R_IN1 2
-// #define R_IN2 4
-// #define R_PWM 15  // PWM pin for right motor
-
-// // ====== Buzzer ======
-// #define BUZZER_PIN 27
-// #define BUZZ_CH    7
-// bool BUZZ_ENABLED = true;
-// static unsigned long buzz_end_ms = 0;
-
-// // ====== PWM Channels ======
-// #define CH_L 0
-// #define CH_R 1
-
-// // ====== Globals ======
-// Adafruit_VL6180X tof;
-// MPU9250_asukiaaa mpu;
-
-// // Encoder variables
-// volatile int posA = 0;           // Left ticks
-// volatile int posB = 0;           // Right ticks
-// volatile int lastEncodedA = 0;   // last AB snapshot (left)
-// volatile int lastEncodedB = 0;   // last AB snapshot (right)
-
-// // ====== IMU Globals ======
-// float yaw = 0;
-// float gyroBiasZ = 0;
-// unsigned long lastYawUpdate = 0;
-
-// // ====== Calibration ======
-// struct Cal { float a, b; };
-// Cal CAL[] = {
-//   {1.00f, -42.0f},  // LEFT
-//   {1.00f,  20.0f},  // FRONT-LEFT
-//   {1.00f, -35.0f},  // FRONT
-//   {1.00f, -10.0f},  // FRONT-RIGHT
-//   {1.00f, -28.0f}   // RIGHT
-// };
-
-// // ====== Encoder ISRs ======
-// void IRAM_ATTR updateEncoderA() {
-//   int msb = digitalRead(ENCA1);
-//   int lsb = digitalRead(ENCA2);
-//   int encoded = (msb << 1) | lsb;
-//   int sum = (lastEncodedA << 2) | encoded;
-
-//   if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011)
-//     posA++;
-//   else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000)
-//     posA--;
-
-//   lastEncodedA = encoded;
-// }
-
-// void IRAM_ATTR updateEncoderB() {
-//   int msb = digitalRead(ENCB1);
-//   int lsb = digitalRead(ENCB2);
-//   int encoded = (msb << 1) | lsb;
-//   int sum = (lastEncodedB << 2) | encoded;
-
-//   if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011)
-//     posB--;
-//   else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000)
-//     posB++;
-
-//   lastEncodedB = encoded;
-// }
-
-// // ====== Motor Control ======
-// void motorsBegin() {
-//   pinMode(L_IN1, OUTPUT);
-//   pinMode(L_IN2, OUTPUT);
-//   pinMode(R_IN1, OUTPUT);
-//   pinMode(R_IN2, OUTPUT);
-//   ledcSetup(CH_L, 1000, 8); // 1kHz, 8-bit
-//   ledcSetup(CH_R, 1000, 8);
-//   ledcAttachPin(L_PWM, CH_L);
-//   ledcAttachPin(R_PWM, CH_R);
-// }
-
-// // Drive individual motor by signed PWM value (-255 to +255)
-// void motorL(int pwm) {
-//   pwm = constrain(pwm, -255, 255);
-//   if (pwm > 0) {
-//     digitalWrite(L_IN1, HIGH);
-//     digitalWrite(L_IN2, LOW);
-//     ledcWrite(CH_L, pwm);
-//   } else if (pwm < 0) {
-//     digitalWrite(L_IN1, LOW);
-//     digitalWrite(L_IN2, HIGH);
-//     ledcWrite(CH_L, -pwm);
-//   } else {
-//     digitalWrite(L_IN1, LOW);
-//     digitalWrite(L_IN2, LOW);
-//     ledcWrite(CH_L, 0);
-//   }
-// }
-
-// void motorR(int pwm) {
-//   pwm = constrain(pwm, -255, 255);
-//   if (pwm > 0) {
-//     digitalWrite(R_IN1, HIGH);
-//     digitalWrite(R_IN2, LOW);
-//     ledcWrite(CH_R, pwm);
-//   } else if (pwm < 0) {
-//     digitalWrite(R_IN1, LOW);
-//     digitalWrite(R_IN2, HIGH);
-//     ledcWrite(CH_R, -pwm);
-//   } else {
-//     digitalWrite(R_IN1, LOW);
-//     digitalWrite(R_IN2, LOW);
-//     ledcWrite(CH_R, 0);
-//   }
-// }
-
-// void motorsStop() {
-//   motorL(0);
-//   motorR(0);
-// }
-
-// // ====== Motor Test ======
-// void motorTest() {
-//   Serial.println("[TEST] Starting motor test...");
-
-//   Serial.println("→ Forward");
-//   motorL(200);
-//   motorR(200);
-//   delay(500);
-
-//   for(int i=200; i>-180; i--){
-//     motorL(i);
-//   motorR(i);
-//   delay(2);
-//   }
+#define BUZZER_PIN 27
 
 
-//   Serial.println("← Backward");
-//   motorL(-200);
-//   motorR(-200);
-//   delay(1000);
+// ====== MUX Channels ======
+#define CH_FRONT_LEFT   4
+#define CH_FRONT_CENTER 5
+#define CH_FRONT_RIGHT  6
+#define CH_LEFT_SIDE    3
+#define CH_RIGHT_SIDE   7
 
-//   Serial.println("↰ Left turn");
-//   motorL(-200);
-//   motorR(200);
-//   delay(1000);
+// ====== Encoder Pins ======
+#define ENCA1 35
+#define ENCA2 34
+#define ENCB1 33
+#define ENCB2 32
 
-//   Serial.println("↱ Right turn");
-//   motorL(200);
-//   motorR(-200);
-//   delay(1000);
+// ====== Motor Pins ======
+#define L_IN1 5
+#define L_IN2 17
+#define L_PWM 18
 
-//   motorsStop();
-//   Serial.println("⏹ Motors stopped\n");
-// }
-// void stop(int spd){
+#define R_IN1 2
+#define R_IN2 4
+#define R_PWM 15
+
+// ====== PWM Channels ======
+#define CH_L 0
+#define CH_R 1
+
+// ====== Globals ======
+Adafruit_VL6180X tof;
+MPU9250_asukiaaa mpu;
 
 
 
 
-// }
+
+// Encoders
+volatile int posA = 0;
+volatile int posB = 0;
+volatile int lastEncodedA = 0;
+volatile int lastEncodedB = 0;
+
+// ====== Distance Calibration ======
+float TICKS_PER_MM_L = 13.56f;
+float TICKS_PER_MM_R = 13.45f;
+
+// ====== IMU ======
+float yaw = 0;
+float gyroBiasZ = 0;
+unsigned long lastYawUpdate = 0;
+
+// ====== ToF calibration ======
+struct Cal { float a, b; };
+Cal CAL[] = {
+  { 1.0667f, -49.3333f }, 
+  { 0.9524f,  19.0476f }, 
+  { 1.0000f, -36.0000f }, 
+  { 0.9756f,  -4.3902f }, 
+  { 1.0811f, -29.7297f }
+};
 
 
-// // ====== MUX Helper ======
-// void mux(uint8_t ch) {
-//   Wire.beginTransmission(MUX_ADDR);
-//   Wire.write(1 << ch);
-//   Wire.endTransmission();
-//   delayMicroseconds(200);
-// }
 
-// // ====== ToF Read ======
-// float readMM(uint8_t ch, int idx) {
-//   mux(ch);
-//   delay(2);
-//   uint8_t r = tof.readRange();
-//   if (tof.readRangeStatus() != VL6180X_ERROR_NONE) return -1.0f;
-//   float mm = CAL[idx].a * r + CAL[idx].b;
-//   if (mm < 0) mm = 0;
-//   return mm;
-// }
 
-// // ====== IMU Setup + Gyro Bias Calibration ======
-// void imuBegin() {
-//   mpu.setWire(&Wire);
-//   mpu.beginAccel();
-//   mpu.beginGyro();
-//   mpu.beginMag();
+// ====== Encoder ISRs ======
+void IRAM_ATTR updateEncoderA() {
+  int msb = digitalRead(ENCA1);
+  int lsb = digitalRead(ENCA2);
+  int encoded = (msb << 1) | lsb;
+  int sum = (lastEncodedA << 2) | encoded;
 
-//   Serial.println("[IMU] Initializing...");
-//   delay(1200);
+  if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011)
+    posA++;
+  else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000)
+    posA--;
 
-//   Serial.println("[IMU] Calibrating gyro bias, keep still...");
-//   double sum = 0;
-//   int samples = 0;
-//   for (int i = 0; i < 200; i++) {
+  lastEncodedA = encoded;
+}
+
+void IRAM_ATTR updateEncoderB() {
+  int msb = digitalRead(ENCB1);
+  int lsb = digitalRead(ENCB2);
+  int encoded = (msb << 1) | lsb;
+  int sum = (lastEncodedB << 2) | encoded;
+
+  if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011)
+    posB--;
+  else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000)
+    posB++;
+
+  lastEncodedB = encoded;
+}
+
+// ====== Motor Control ======
+void motorsBegin() {
+  pinMode(L_IN1, OUTPUT);
+  pinMode(L_IN2, OUTPUT);
+  pinMode(R_IN1, OUTPUT);
+  pinMode(R_IN2, OUTPUT);
+  ledcSetup(CH_L, 1000, 8);
+  ledcSetup(CH_R, 1000, 8);
+  ledcAttachPin(L_PWM, CH_L);
+  ledcAttachPin(R_PWM, CH_R);
+}
+
+void motorL(int pwm) {
+  pwm = constrain(pwm, -255, 255);
+  if (pwm > 0) {
+    digitalWrite(L_IN1, HIGH);
+    digitalWrite(L_IN2, LOW);
+    ledcWrite(CH_L, pwm);
+  } else if (pwm < 0) {
+    digitalWrite(L_IN1, LOW);
+    digitalWrite(L_IN2, HIGH);
+    ledcWrite(CH_L, -pwm);
+  } else {
+    digitalWrite(L_IN1, LOW);
+    digitalWrite(L_IN2, LOW);
+    ledcWrite(CH_L, 0);
+  }
+}
+
+void motorR(int pwm) {
+  pwm = constrain(pwm, -255, 255);
+  if (pwm > 0) {
+    digitalWrite(R_IN1, HIGH);
+    digitalWrite(R_IN2, LOW);
+    ledcWrite(CH_R, pwm);
+  } else if (pwm < 0) {
+    digitalWrite(R_IN1, LOW);
+    digitalWrite(R_IN2, HIGH);
+    ledcWrite(CH_R, -pwm);
+  } else {
+    digitalWrite(R_IN1, LOW);
+    digitalWrite(R_IN2, LOW);
+    ledcWrite(CH_R, 0);
+  }
+}
+
+void motorsStop() {
+  motorL(0);
+  motorR(0);
+}
+
+float angleDiff(float target, float current) {
+  float diff = target - current;
+  while (diff > 180) diff -= 360;
+  while (diff < -180) diff += 360;
+  return diff;
+}
+
+// ====== MUX ======
+void mux(uint8_t ch) {
+  Wire.beginTransmission(MUX_ADDR);
+  Wire.write(1 << ch);
+  Wire.endTransmission();
+  delayMicroseconds(200);
+}
+
+float readMM(uint8_t ch, int idx) {
+  mux(ch);
+  delay(2);
+  uint8_t r = tof.readRange();
+  if (tof.readRangeStatus() != VL6180X_ERROR_NONE) return -1.0f;
+  float mm = CAL[idx].a * r + CAL[idx].b;
+  if (mm < 0) mm = 0;
+  return mm;
+}
+
+// ====== IMU ======
+void imuBegin() {
+  mpu.setWire(&Wire);
+  mpu.beginAccel();
+  mpu.beginGyro();
+  //mpu.beginMag();
+
+  delay(1200);
+
+  double sum = 0;
+  for (int i = 0; i < 200; i++) {
+    mpu.gyroUpdate();
+    sum += mpu.gyroZ();
+    delay(5);
+  }
+  gyroBiasZ = sum / 200.0;
+
+  yaw = 0;
+  lastYawUpdate = millis();
+}
+
+
+
+
+
+
+
+
+void preciseStopCorrection(long targetTicksL, long targetTicksR) {
+  // Compute current travelled ticks
+  noInterrupts();
+  long curL = posA - targetTicksL;
+  long curR = posB - targetTicksR;
+  interrupts();
+
+  // Convert to mm
+  float distL = curL / TICKS_PER_MM_L;
+  float distR = curR / TICKS_PER_MM_R;
+  float avgErr = (distL + distR) * 0.5f;   // mm error
+
+  // If within ±3mm → perfect
+  if (abs(avgErr) <= 3.0f) return;
+
+  int pwm = 160;  // correction power
+
+  if (avgErr > 3) {
+    // Overshoot → reverse a little
+    motorL(-pwm);
+    motorR(-pwm);
+    delay(abs(avgErr) * 4); // ~4ms per mm
+  } else {
+    // Undershoot → move forward a little
+    motorL(pwm);
+    motorR(pwm);
+    delay(abs(avgErr) * 4);
+  }
+
+  motorsStop();
+}
+
+
+
+
+
+
+
+
+
+void driveStraightIMU_smooth(float distance_cm, int maxPWM) {
+
+  float distance_mm = distance_cm * 10.0f;
+
+  long startA, startB;
+  noInterrupts();
+  startA = posA;
+  startB = posB;
+  interrupts();
+
+  // ==========================
+  // ⭐ Step 1 — Update IMU BEFORE movement
+  // ==========================
+  mpu.gyroUpdate();
+  lastYawUpdate = millis();
+  float gz = mpu.gyroZ() - gyroBiasZ;
+  yaw += gz * 0.001f;   // tiny update
+
+  // ⭐ NOW lock real starting heading
+  float targetYaw = yaw;
+
+  // ==========================
+  // Gain & ramp config
+  // ==========================
+  const float Kp = 4.6f;
+  const float rampDist = 30.0f;    
+  const int MIN_START_PWM = 70;    
+  const int MIN_RUNNING_PWM = 50;  
+
+  // ==========================
+  // ⭐ Step 2 — Kickstart AFTER locking heading
+  // ==========================
+  motorL(MIN_START_PWM);
+  motorR(MIN_START_PWM);
+  delay(40);  // give wheels initial torque
+
+  // ==========================
+  // ⭐ Step 3 — Main IMU loop
+  // ==========================
+  while (true) {
+
+    // --- IMU update ---
+    mpu.gyroUpdate();
+    unsigned long now = millis();
+    float dt = (now - lastYawUpdate)/1000.0f;
+    lastYawUpdate = now;
+
+    gz = mpu.gyroZ() - gyroBiasZ;
+    yaw += gz * dt;
+
+    if (yaw > 180) yaw -= 360;
+    if (yaw < -180) yaw += 360;
+
+    // --- Encoder distance ---
+    noInterrupts();
+    long curA = posA - startA;
+    long curB = posB - startB;
+    interrupts();
+
+    float distL = curA / TICKS_PER_MM_L;
+    float distR = curB / TICKS_PER_MM_R;
+    float avg = (distL + distR) * 0.5f;
+
+    if (avg >= distance_mm) break;
+
+    // --- PWM ramp ---
+    float pwm = maxPWM;
+
+    if (avg < rampDist) {
+      pwm = MIN_START_PWM + (maxPWM - MIN_START_PWM) * (avg / rampDist);
+    }
+    else if ((distance_mm - avg) < rampDist) {
+      pwm = MIN_RUNNING_PWM + (maxPWM - MIN_RUNNING_PWM) * ((distance_mm - avg) / rampDist);
+    }
+
+    pwm = constrain(pwm, MIN_RUNNING_PWM, maxPWM);
+
+    // --- Heading correction ---
+    float err = angleDiff(targetYaw, yaw);
+    float turn = Kp * err;
+
+    int pwmL = pwm - turn;
+    int pwmR = pwm + turn;
+
+    motorL(pwmL);
+    motorR(pwmR);
+
+    delay(5);
+  }
+
+  // ==========================
+  // ⭐ Step 4 — Hard brake + reverse pulse
+  // ==========================
+
+
+  motorL(-60);
+  motorR(-60);
+  delay(35);
+
+  motorsStop();
+
+  // After reverse pulse
+motorsStop();
+
+// Encoder-based fine correction
+long targetA = startA + distance_mm * TICKS_PER_MM_L;
+long targetB = startB + distance_mm * TICKS_PER_MM_R;
+preciseStopCorrection(targetA, targetB);
+
+
+}
+
+
+
+
+float angleError_FL_FR() {
+    float FL = readMM(CH_FRONT_LEFT, 1);
+    float FR = readMM(CH_FRONT_RIGHT, 3);
+
+    // valid range for 45° sensors
+    if (FL < 20 || FL > 150) return 0;
+    if (FR < 20 || FR > 150) return 0;
+
+    // angle error = difference
+    float diff = FL - FR;
+
+    // tuning gain
+    const float Kp = 1.4f;
+
+    return Kp * diff;  // positive = turn left, negative = turn right
+}
+
+
+
+
+// ===== BUZZER FUNCTIONS (PASSIVE BUZZER) =====
+
+#define BUZZER_CH 3        // LEDC channel for buzzer
+#define BUZZER_FREQ 4000   // 4 kHz
+#define BUZZER_RES 8       // 8-bit resolution
+
+void buzzInit() {
+    ledcSetup(BUZZER_CH, BUZZER_FREQ, BUZZER_RES);
+    ledcAttachPin(BUZZER_PIN, BUZZER_CH);
+    ledcWrite(BUZZER_CH, 0);   // off
+}
+
+void buzzShort() {
+    ledcWrite(BUZZER_CH, 200);  // volume
+    delay(60);
+    ledcWrite(BUZZER_CH, 0);
+}
+
+void buzzLong() {
+    ledcWrite(BUZZER_CH, 200);
+    delay(250);
+    ledcWrite(BUZZER_CH, 0);
+}
+
+void buzzConfirm(int n = 1) {
+    for (int i = 0; i < n; i++) {
+        buzzShort();
+        delay(80);
+    }
+}
+
+
+void driveCentered45(int basePWM) {
+
+    float FL = readMM(CH_FRONT_LEFT, 0);
+    float FR = readMM(CH_FRONT_RIGHT, 2);
+
+    // invalid → just go straight
+    if (FL < 0 || FR < 0) {
+        motorL(basePWM);
+        motorR(basePWM);
+        return;
+    }
+
+    float diff = FL - FR;  // positive → tilted right
+
+    const float Kp = 1.2f;   // mild correction
+    float turn = Kp * diff;
+
+    int pwmL = basePWM - turn;
+    int pwmR = basePWM + turn;
+
+    motorL(pwmL);
+    motorR(pwmR);
+}
+
+bool frontWallDetected(float FL, float FR) {
+    if (FL < 0 || FR < 0) return false;
+
+    // When front wall exists, both drop to ~60–80mm
+    if (FL < 85 && FR < 85) return true;
+
+    return false;
+}
+
+
+
+
+
+
+// ====== Setup ======
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(400000);
+
+  motorsBegin();
+
+  // ToF init
+  uint8_t channels[5] = {CH_LEFT_SIDE, CH_FRONT_LEFT, CH_FRONT_CENTER, CH_FRONT_RIGHT, CH_RIGHT_SIDE};
+  for (int i = 0; i < 5; i++) {
+    mux(channels[i]);
+    delay(3);
+    tof.begin(&Wire);
+  }
+
+  imuBegin();
+
+  // Encoder init
+  pinMode(ENCA1, INPUT_PULLUP);
+  pinMode(ENCA2, INPUT_PULLUP);
+  pinMode(ENCB1, INPUT_PULLUP);
+  pinMode(ENCB2, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENCA1), updateEncoderA, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCA2), updateEncoderA, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCB1), updateEncoderB, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCB2), updateEncoderB, CHANGE);
+
+  buzzInit();
+  buzzConfirm(1);
+
+ 
+
+  buzzShort();
+}
+
+// ====== Loop (run straight once) ======
+bool runOnce = false;
+
+
+
+//  void loop() {
+
+//     // =========================
+//     // Read sensors
+//     // =========================
+//     float FL = readMM(CH_FRONT_LEFT, 1);
+//     float FR = readMM(CH_FRONT_RIGHT, 3);
+
+//     // Read IMU yaw
 //     mpu.gyroUpdate();
-//     sum += mpu.gyroZ();
-//     samples++;
-//     delay(5);
-//   }
-//   gyroBiasZ = (samples > 0) ? sum / samples : 0;
-//   Serial.printf("[IMU] Gyro bias Z = %.3f deg/s\n", gyroBiasZ);
+//     unsigned long now = millis();
+//     float dt = (now - lastYawUpdate) / 1000.0f;
+//     lastYawUpdate = now;
 
-//   yaw = 0;
-//   lastYawUpdate = millis();
+//     float gz = mpu.gyroZ() - gyroBiasZ;
+//     yaw += gz * dt;
+//     if (yaw > 180) yaw -= 360;
+//     if (yaw < -180) yaw += 360;
 
-//   Serial.println("[IMU] Ready.\n");
+//     // =========================
+//     // Compute FL–FR angle correction
+//     // =========================
+//     float diff = 0;
+//     if (FL > 20 && FL < 150 && FR > 20 && FR < 150) {
+//         diff = FL - FR;
+//     }
+
+//     float KpAngle = 1.4f;
+//     float turnAngle = KpAngle * diff;
+
+//     // =========================
+//     // IMU straight correction
+//     // =========================
+//     float targetYaw = 0;  // keep straight
+//     float KpYaw = 4.0f;
+
+//     float yawErr = angleDiff(targetYaw, yaw);
+//     float turnYaw = KpYaw * yawErr;
+
+//     // Final turn correction
+//     float turn = turnYaw + turnAngle;
+
+//     // =========================
+//     // DRIVE FORWARD SLOWLY
+//     // =========================
+//     int basePWM = 90;
+
+//     int pwmL = basePWM - turn;
+//     int pwmR = basePWM + turn;
+
+//     motorL(pwmL);
+//     motorR(pwmR);
+
+//     // =========================
+//     // SERIAL DEBUG PRINT
+//     // =========================
+//     Serial.printf("FL=%4.0f  FR=%4.0f  diff=%5.1f  turnAngle=%6.2f  yaw=%6.2f  yawErr=%6.2f  turnYaw=%6.2f  pwmL=%4d  pwmR=%4d\n",
+//                   FL, FR, diff, turnAngle, yaw, yawErr, turnYaw, pwmL, pwmR);
+
+//     delay(20);
 // }
 
-// // ====== Setup ======
-// void setup() {
-//   Serial.begin(115200);
-//   delay(500);
-//   Wire.begin(SDA_PIN, SCL_PIN);
-//   Wire.setClock(400000);
 
-//   Serial.println("\n=== Zeeker Full Diagnostic ===");
+void driveSideWalls(int basePWM)
+{
+    float L = readMM(CH_LEFT_SIDE, 0);
+    float R = readMM(CH_RIGHT_SIDE, 4);
 
-//   // Motors
-//   motorsBegin();
-//   motorTest();
+    bool leftOK  = (L > 10 && L < 180);
+    bool rightOK = (R > 10 && R < 180);
 
-//   // ToF setup
-//   uint8_t channels[5] = {CH_FRONT_LEFT, CH_FRONT_CENTER, CH_FRONT_RIGHT, CH_LEFT_SIDE, CH_RIGHT_SIDE};
-//   for (int i = 0; i < 5; i++) {
-//     mux(channels[i]);
-//     delay(3);
-//     if (tof.begin(&Wire))
-//       Serial.printf("✅ ToF[%d] ready on CH%d\n", i, channels[i]);
-//     else
-//       Serial.printf("❌ ToF[%d] FAIL on CH%d\n", i, channels[i]);
-//   }
+    float turn = 0;
 
-//   // IMU setup
-//   imuBegin();
-//   Serial.println("✅ MPU9250 ready.\n");
+    // ===== CASE 1: BOTH WALLS → CENTER =====
+    if (leftOK && rightOK) {
+        float diff = (R - L);   // positive: robot too close to left
+        const float Kp = 0.9f;  // mild
 
-//   // Encoders
-//   pinMode(ENCA1, INPUT_PULLUP);
-//   pinMode(ENCA2, INPUT_PULLUP);
-//   pinMode(ENCB1, INPUT_PULLUP);
-//   pinMode(ENCB2, INPUT_PULLUP);
-//   attachInterrupt(digitalPinToInterrupt(ENCA1), updateEncoderA, CHANGE);
-//   attachInterrupt(digitalPinToInterrupt(ENCA2), updateEncoderA, CHANGE);
-//   attachInterrupt(digitalPinToInterrupt(ENCB1), updateEncoderB, CHANGE);
-//   attachInterrupt(digitalPinToInterrupt(ENCB2), updateEncoderB, CHANGE);
-//   Serial.println("✅ Encoders initialized.\n");
-// }
+        turn = Kp * diff;
+    }
 
-// // ====== Loop ======
+    // ===== CASE 2: LEFT ONLY =====
+    else if (leftOK && !rightOK) {
+        float err = (L - 40.0f); // target distance = 40 mm
+        const float Kp = 1.1f;
+
+        turn = Kp * err;   // positive → drift to right
+    }
+
+    // ===== CASE 3: RIGHT ONLY =====
+    else if (!leftOK && rightOK) {
+        float err = (R - 40.0f);
+        const float Kp = 1.1f;
+
+        turn = -Kp * err;  // negative → drift to left
+    }
+
+    // ===== CASE 4: NO WALLS → GO STRAIGHT =====
+    else {
+        motorL(basePWM);
+        motorR(basePWM);
+        return;
+    }
+
+    // ===== APPLY MOTOR CORRECTION =====
+    int pwmL = basePWM - turn;
+    int pwmR = basePWM + turn;
+
+    motorL(pwmL);
+    motorR(pwmR);
+}
+
+void loop() {
+
+    float FL = readMM(CH_FRONT_LEFT, 1);
+    float FR = readMM(CH_FRONT_RIGHT, 3);
+
+    // Detect front wall
+    if (frontWallDetected(FL, FR)) {
+        motorsStop();
+        buzzConfirm(2);
+        Serial.println("=== FRONT WALL DETECTED ===");
+        return;
+    }
+
+    // Follow side walls
+    driveSideWalls(120);
+
+    delay(20);
+}
+
+
+
 // void loop() {
-//   // --- ToF readings ---
-//   float L  = readMM(CH_LEFT_SIDE, 0);
-//   float FL = readMM(CH_FRONT_LEFT, 1);
-//   float F  = readMM(CH_FRONT_CENTER, 2);
-//   float FR = readMM(CH_FRONT_RIGHT, 3);
-//   float R  = readMM(CH_RIGHT_SIDE, 4);
 
-//   // --- IMU yaw integration ---
-//   mpu.gyroUpdate();
-//   unsigned long now = millis();
-//   float dt = (now - lastYawUpdate) / 1000.0f;
-//   lastYawUpdate = now;
-//   float gz = mpu.gyroZ() - gyroBiasZ;
-//   yaw += gz * dt;
-//   if (yaw > 180) yaw -= 360;
-//   if (yaw < -180) yaw += 360;
+//     float FL = readMM(CH_FRONT_LEFT, 1);
+//     float FR = readMM(CH_FRONT_RIGHT, 3);
 
-//   // --- Encoder snapshot ---
-//   noInterrupts();
-//   long leftTicks = posA;
-//   long rightTicks = posB;
-//   interrupts();
+//     // 1. Check front wall
+//     if (frontWallDetected(FL, FR)) {
+//         motorsStop();
+//         buzzConfirm(2);
+//         Serial.println("=== FRONT WALL DETECTED ===");
+//             Serial.printf("FL: %.1f  FR: %.1f\n", FL, FR);
 
-//   Serial.printf("Yaw:%7.2f° | L:%4.0f FL:%4.0f F:%4.0f FR:%4.0f R:%4.0f | ENC_L:%6ld ENC_R:%6ld\n",
-//                 yaw, L, FL, F, FR, R, leftTicks, rightTicks);
+//         delay(200);
+//         return;
+//     }
 
-//   delay(50);
+//     // 2. Drive centered
+//     driveCentered45(120);   // tune base speed
+
+//     // 3. Debug
+//     Serial.printf("FL: %.1f  FR: %.1f\n", FL, FR);
+
+//     delay(30);
+// }
 
 
-  
+// void loop() {
+//   float LS = readMM(CH_LEFT_SIDE,    0);
+//   float FL = readMM(CH_FRONT_LEFT,   1);
+//   float FC = readMM(CH_FRONT_CENTER, 2);
+//   float FR = readMM(CH_FRONT_RIGHT,  3);
+//   float RS = readMM(CH_RIGHT_SIDE,   4);
+
+//   Serial.printf(" LS:%5.1f  FL:%5.1f  FC:%5.1f  FR:%5.1f    RS:%5.1f\n",
+//                  LS, FL, FC, FR, RS);
+
+//   delay(100);
 // }
