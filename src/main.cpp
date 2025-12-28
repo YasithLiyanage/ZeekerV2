@@ -3,6 +3,8 @@
 #include "Adafruit_VL6180X.h"
 #include <MPU9250_asukiaaa.h>
 
+#define BTN_PIN 14
+
 // ====== I²C and MUX Pins ======
 #define SDA_PIN 26
 #define SCL_PIN 25
@@ -69,6 +71,17 @@ Cal CAL[] = {
   { 0.9756f,  -4.3902f }, 
   { 1.0811f, -29.7297f }
 };
+
+enum MazeState {
+    STATE_A_BOTH_SIDES,
+    STATE_B_LEFT_ONLY,
+    STATE_C_RIGHT_ONLY,
+    STATE_D_NO_WALLS,
+    STATE_E_FRONT,
+    STATE_F_FRONT_LEFT,
+    STATE_G_FRONT_RIGHT
+};
+
 
 
 
@@ -200,8 +213,29 @@ void imuBegin() {
 }
 
 
+MazeState detectMazeState() {
 
+    float LS = readMM(CH_LEFT_SIDE, 0);
+    float FL = readMM(CH_FRONT_LEFT, 1);
+    float FC = readMM(CH_FRONT_CENTER, 2);
+    float FR = readMM(CH_FRONT_RIGHT, 3);
+    float RS = readMM(CH_RIGHT_SIDE, 4);
 
+    bool leftOK   = (LS >= 0 && LS < 150);
+    bool rightOK  = (RS >= 0 && RS < 150);
+
+    bool front = (FL > 0 && FR > 0 && FL < 70 && FR < 70);
+
+    if (front && leftOK && !rightOK) return STATE_F_FRONT_LEFT;
+    if (front && rightOK && !leftOK) return STATE_G_FRONT_RIGHT;
+    if (front)                      return STATE_E_FRONT;
+
+    if (leftOK && rightOK) return STATE_A_BOTH_SIDES;
+    if (leftOK && !rightOK) return STATE_B_LEFT_ONLY;
+    if (!leftOK && rightOK) return STATE_C_RIGHT_ONLY;
+
+    return STATE_D_NO_WALLS;
+}
 
 
 
@@ -415,8 +449,8 @@ void buzzConfirm(int n = 1) {
 
 void driveCentered45(int basePWM) {
 
-    float FL = readMM(CH_FRONT_LEFT, 0);
-    float FR = readMM(CH_FRONT_RIGHT, 2);
+    float FL = readMM(CH_FRONT_LEFT, 1);
+    float FR = readMM(CH_FRONT_RIGHT, 3);
 
     // invalid → just go straight
     if (FL < 0 || FR < 0) {
@@ -446,13 +480,38 @@ bool frontWallDetected(float FL, float FR) {
     return false;
 }
 
+void printSensors() {
+    float LS = readMM(CH_LEFT_SIDE,    0);
+    float FL = readMM(CH_FRONT_LEFT,   1);
+    float FC = readMM(CH_FRONT_CENTER, 2);
+    float FR = readMM(CH_FRONT_RIGHT,  3);
+    float RS = readMM(CH_RIGHT_SIDE,   4);
+
+    Serial.printf("LS:%5.1f  FL:%5.1f  FC:%5.1f  FR:%5.1f  RS:%5.1f    ",
+                  LS, FL, FC, FR, RS);
+}
 
 
+void printState(MazeState s) {
+    switch (s) {
+        case STATE_A_BOTH_SIDES:  Serial.println("STATE A: Both side walls"); break;
+        case STATE_B_LEFT_ONLY:   Serial.println("STATE B: Left wall only"); break;
+        case STATE_C_RIGHT_ONLY:  Serial.println("STATE C: Right wall only"); break;
+        case STATE_D_NO_WALLS:    Serial.println("STATE D: No walls"); break;
+        case STATE_E_FRONT:       Serial.println("STATE E: FRONT WALL"); break;
+        case STATE_F_FRONT_LEFT:  Serial.println("STATE F: FRONT + LEFT"); break;
+        case STATE_G_FRONT_RIGHT: Serial.println("STATE G: FRONT + RIGHT"); break;
+
+        
+    }
+}
 
 
+bool frontBeeped = false;
 
 // ====== Setup ======
 void setup() {
+  
   Serial.begin(115200);
   delay(500);
   Wire.begin(SDA_PIN, SCL_PIN);
@@ -469,6 +528,8 @@ void setup() {
   }
 
   imuBegin();
+
+  pinMode(BTN_PIN, INPUT);   // Button gives HIGH when pressed
 
   // Encoder init
   pinMode(ENCA1, INPUT_PULLUP);
@@ -491,69 +552,6 @@ void setup() {
 // ====== Loop (run straight once) ======
 bool runOnce = false;
 
-
-
-//  void loop() {
-
-//     // =========================
-//     // Read sensors
-//     // =========================
-//     float FL = readMM(CH_FRONT_LEFT, 1);
-//     float FR = readMM(CH_FRONT_RIGHT, 3);
-
-//     // Read IMU yaw
-//     mpu.gyroUpdate();
-//     unsigned long now = millis();
-//     float dt = (now - lastYawUpdate) / 1000.0f;
-//     lastYawUpdate = now;
-
-//     float gz = mpu.gyroZ() - gyroBiasZ;
-//     yaw += gz * dt;
-//     if (yaw > 180) yaw -= 360;
-//     if (yaw < -180) yaw += 360;
-
-//     // =========================
-//     // Compute FL–FR angle correction
-//     // =========================
-//     float diff = 0;
-//     if (FL > 20 && FL < 150 && FR > 20 && FR < 150) {
-//         diff = FL - FR;
-//     }
-
-//     float KpAngle = 1.4f;
-//     float turnAngle = KpAngle * diff;
-
-//     // =========================
-//     // IMU straight correction
-//     // =========================
-//     float targetYaw = 0;  // keep straight
-//     float KpYaw = 4.0f;
-
-//     float yawErr = angleDiff(targetYaw, yaw);
-//     float turnYaw = KpYaw * yawErr;
-
-//     // Final turn correction
-//     float turn = turnYaw + turnAngle;
-
-//     // =========================
-//     // DRIVE FORWARD SLOWLY
-//     // =========================
-//     int basePWM = 90;
-
-//     int pwmL = basePWM - turn;
-//     int pwmR = basePWM + turn;
-
-//     motorL(pwmL);
-//     motorR(pwmR);
-
-//     // =========================
-//     // SERIAL DEBUG PRINT
-//     // =========================
-//     Serial.printf("FL=%4.0f  FR=%4.0f  diff=%5.1f  turnAngle=%6.2f  yaw=%6.2f  yawErr=%6.2f  turnYaw=%6.2f  pwmL=%4d  pwmR=%4d\n",
-//                   FL, FR, diff, turnAngle, yaw, yawErr, turnYaw, pwmL, pwmR);
-
-//     delay(20);
-// }
 
 
 void driveSideWalls(int basePWM)
@@ -605,62 +603,210 @@ void driveSideWalls(int basePWM)
     motorR(pwmR);
 }
 
-void loop() {
 
-    float FL = readMM(CH_FRONT_LEFT, 1);
-    float FR = readMM(CH_FRONT_RIGHT, 3);
 
-    // Detect front wall
-    if (frontWallDetected(FL, FR)) {
-        motorsStop();
-        buzzConfirm(2);
-        Serial.println("=== FRONT WALL DETECTED ===");
-        return;
+
+
+
+
+
+
+void driveStraight_IMU_untilFrontWall(int basePWM)
+{
+    // ---- Lock starting heading ----
+    mpu.gyroUpdate();
+    lastYawUpdate = millis();
+    float targetYaw = yaw;
+
+    const float KpYaw = 4.2f;    // IMU correction
+    const int MIN_PWM = 60;
+
+    while (true)
+    {
+        // ----- IMU update -----
+        mpu.gyroUpdate();
+        unsigned long now = millis();
+        float dt = (now - lastYawUpdate) / 1000.0f;
+        lastYawUpdate = now;
+
+        float gz = mpu.gyroZ() - gyroBiasZ;
+        yaw += gz * dt;
+
+        if (yaw > 180) yaw -= 360;
+        if (yaw < -180) yaw += 360;
+
+        // ----- Check front wall -----
+        float FL = readMM(CH_FRONT_LEFT, 1);
+        float FR = readMM(CH_FRONT_RIGHT, 3);
+
+
+        bool front = (FL > 0 && FR > 0 && FL < 70 && FR < 70);
+        if (front) {
+            motorsStop();
+            buzzConfirm(2);
+            Serial.println("=== FRONT WALL STOP ===");
+            return;
+        }
+
+        // ----- IMU correction only -----
+        float yawErr = angleDiff(targetYaw, yaw);
+        float turn = KpYaw * yawErr;
+
+        int pwmL = basePWM - turn;
+        int pwmR = basePWM + turn;
+
+        // safety lower bound
+        if (abs(pwmL) < MIN_PWM) pwmL = MIN_PWM * (pwmL >= 0 ? 1 : -1);
+        if (abs(pwmR) < MIN_PWM) pwmR = MIN_PWM * (pwmR >= 0 ? 1 : -1);
+
+        motorL(pwmL);
+        motorR(pwmR);
+
+        // Debug
+        Serial.printf("FL=%.1f FR=%.1f yaw=%.2f err=%.2f pwmL=%d pwmR=%d\n",
+                       FL, FR, yaw, yawErr, pwmL, pwmR);
+
+        delay(10);
     }
-
-    // Follow side walls
-    driveSideWalls(120);
-
-    delay(20);
 }
 
+
+void squareUpFront() {
+          buzzConfirm(1);
+
+    while (true) {
+        float FL = readMM(CH_FRONT_LEFT, 1);
+        float FR = readMM(CH_FRONT_RIGHT, 3);
+
+        // both sensors must see the wall closely
+        if (FL < 45 && FR < 45 && FL > 0 && FR > 0) {
+            motorsStop();
+            delay(100);
+
+            // reverse a tiny bit for turn clearance
+            motorL(-80);
+            motorR(-80);
+            delay(80);
+            motorsStop();
+
+            // re-zero IMU yaw
+            yaw = 0;
+            lastYawUpdate = millis();
+
+            Serial.println("=== SQUARED UP ===");
+            return;
+        }
+
+        // move slowly forward
+        motorL(90);
+        motorR(90);
+        delay(10);
+    }
+}
+
+void turnLeft90() {
+    float target = yaw - 90;
+    if (target < -180) target += 360;
+
+    while (fabs(angleDiff(target, yaw)) > 2) {
+        mpu.gyroUpdate();
+        unsigned long now = millis();
+        float dt = (now - lastYawUpdate)/1000.0f;
+        lastYawUpdate = now;
+        yaw += (mpu.gyroZ() - gyroBiasZ) * dt;
+
+        motorL(-120);
+        motorR(120);
+    }
+
+    motorsStop();
+    buzzConfirm(1);
+}
+
+void turnRight90() {
+    float target = yaw + 90;
+    if (target > 180) target -= 360;
+
+    while (fabs(angleDiff(target, yaw)) > 2) {
+        mpu.gyroUpdate();
+        unsigned long now = millis();
+        float dt = (now - lastYawUpdate)/1000.0f;
+        lastYawUpdate = now;
+        yaw += (mpu.gyroZ() - gyroBiasZ) * dt;
+
+        motorL(120);
+        motorR(-120);
+    }
+
+    motorsStop();
+    buzzConfirm(1);
+}
+
+void beepWhilePressed() {
+    if (digitalRead(BTN_PIN) == HIGH) {
+        ledcWrite(BUZZER_CH, 200); // beep ON
+    } else {
+        ledcWrite(BUZZER_CH, 0);   // beep OFF
+    }
+}
 
 
 // void loop() {
 
-//     float FL = readMM(CH_FRONT_LEFT, 1);
-//     float FR = readMM(CH_FRONT_RIGHT, 3);
+//     MazeState state = detectMazeState();
+//     printSensors();
+//     printState(state);
 
-//     // 1. Check front wall
-//     if (frontWallDetected(FL, FR)) {
-//         motorsStop();
-//         buzzConfirm(2);
-//         Serial.println("=== FRONT WALL DETECTED ===");
-//             Serial.printf("FL: %.1f  FR: %.1f\n", FL, FR);
-
-//         delay(200);
-//         return;
+//     // Reset latch when moved away from front states
+//     if (state != STATE_E_FRONT &&
+//         state != STATE_F_FRONT_LEFT &&
+//         state != STATE_G_FRONT_RIGHT) {
+//         frontBeeped = false;
 //     }
 
-//     // 2. Drive centered
-//     driveCentered45(120);   // tune base speed
+//     switch (state) {
 
-//     // 3. Debug
-//     Serial.printf("FL: %.1f  FR: %.1f\n", FL, FR);
+//     case STATE_A_BOTH_SIDES:
+//         driveStraight_IMU_untilFrontWall(180);
+//         squareUpFront();
+//             beepWhilePressed();
+
+//         break;
+
+//     case STATE_B_LEFT_ONLY:
+//         driveSideWalls(120);
+//         break;
+
+//     case STATE_C_RIGHT_ONLY:
+//         driveSideWalls(120);
+//         break;
+
+//     case STATE_D_NO_WALLS:
+//         motorL(140);
+//         motorR(140);
+//         break;
+
+//     case STATE_E_FRONT:
+//         motorsStop();
+//         if (!frontBeeped) { buzzConfirm(2); frontBeeped = true; }
+//         break;
+
+//     case STATE_F_FRONT_LEFT:
+//         motorsStop();
+//         if (!frontBeeped) { buzzConfirm(3); frontBeeped = true; }
+//         break;
+
+//     case STATE_G_FRONT_RIGHT:
+//         motorsStop();
+//         if (!frontBeeped) { buzzConfirm(3); frontBeeped = true; }
+//         break;
+// }
+
 
 //     delay(30);
 // }
 
 
-// void loop() {
-//   float LS = readMM(CH_LEFT_SIDE,    0);
-//   float FL = readMM(CH_FRONT_LEFT,   1);
-//   float FC = readMM(CH_FRONT_CENTER, 2);
-//   float FR = readMM(CH_FRONT_RIGHT,  3);
-//   float RS = readMM(CH_RIGHT_SIDE,   4);
-
-//   Serial.printf(" LS:%5.1f  FL:%5.1f  FC:%5.1f  FR:%5.1f    RS:%5.1f\n",
-//                  LS, FL, FC, FR, RS);
-
-//   delay(100);
-// }
+void loop() {
+    beepWhilePressed();
+}
