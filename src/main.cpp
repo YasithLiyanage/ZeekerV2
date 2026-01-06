@@ -705,7 +705,7 @@ void squareUpFront() {
 }
 
 void turnLeft90() {
-    float target = yaw - 90;
+    float target = yaw + 90;
     if (target < -180) target += 360;
 
     while (fabs(angleDiff(target, yaw)) > 2) {
@@ -724,7 +724,7 @@ void turnLeft90() {
 }
 
 void turnRight90() {
-    float target = yaw + 90;
+    float target = yaw - 90;
     if (target > 180) target -= 360;
 
     while (fabs(angleDiff(target, yaw)) > 2) {
@@ -751,62 +751,62 @@ void beepWhilePressed() {
 }
 
 
-// void loop() {
-
-//     MazeState state = detectMazeState();
-//     printSensors();
-//     printState(state);
-
-//     // Reset latch when moved away from front states
-//     if (state != STATE_E_FRONT &&
-//         state != STATE_F_FRONT_LEFT &&
-//         state != STATE_G_FRONT_RIGHT) {
-//         frontBeeped = false;
-//     }
-
-//     switch (state) {
-
-//     case STATE_A_BOTH_SIDES:
-//         driveStraight_IMU_untilFrontWall(180);
-//         squareUpFront();
-//             beepWhilePressed();
-
-//         break;
-
-//     case STATE_B_LEFT_ONLY:
-//         driveSideWalls(120);
-//         break;
-
-//     case STATE_C_RIGHT_ONLY:
-//         driveSideWalls(120);
-//         break;
-
-//     case STATE_D_NO_WALLS:
-//         motorL(140);
-//         motorR(140);
-//         break;
-
-//     case STATE_E_FRONT:
-//         motorsStop();
-//         if (!frontBeeped) { buzzConfirm(2); frontBeeped = true; }
-//         break;
-
-//     case STATE_F_FRONT_LEFT:
-//         motorsStop();
-//         if (!frontBeeped) { buzzConfirm(3); frontBeeped = true; }
-//         break;
-
-//     case STATE_G_FRONT_RIGHT:
-//         motorsStop();
-//         if (!frontBeeped) { buzzConfirm(3); frontBeeped = true; }
-//         break;
-// }
-
-
-//     delay(30);
-// }
-
-
 void loop() {
-    beepWhilePressed();
+
+    MazeState state = detectMazeState();
+    printSensors();
+    printState(state);
+
+    // Reset latch when moved away from front states
+    if (state != STATE_E_FRONT &&
+        state != STATE_F_FRONT_LEFT &&
+        state != STATE_G_FRONT_RIGHT) {
+        frontBeeped = false;
+    }
+
+    switch (state) {
+
+    case STATE_A_BOTH_SIDES:
+        driveStraight_IMU_untilFrontWall(180);
+        squareUpFront();
+        turnRight90();
+
+        break;
+
+    case STATE_B_LEFT_ONLY:
+        driveSideWalls(120);
+        break;
+
+    case STATE_C_RIGHT_ONLY:
+        driveSideWalls(120);
+        break;
+
+    case STATE_D_NO_WALLS:
+        motorL(140);
+        motorR(140);
+        break; 
+
+    case STATE_E_FRONT:
+        motorsStop();
+        if (!frontBeeped) { buzzConfirm(2); frontBeeped = true; }
+        break;
+
+    case STATE_F_FRONT_LEFT:
+        motorsStop();
+        if (!frontBeeped) { buzzConfirm(3); frontBeeped = true; }
+        break;
+
+    case STATE_G_FRONT_RIGHT:
+        motorsStop();
+        if (!frontBeeped) { buzzConfirm(3); frontBeeped = true; }
+        break;
 }
+
+
+    delay(30);
+}
+
+
+// void loop() {
+//     beepWhilePressed();
+// }
